@@ -60,7 +60,7 @@ void loop() {
   Serial.println("\n--- Début du scan BLE (5s) ---");
   bleData.clear();  // Efface les données des scans précédents
 
-  pBLEScan->start(10, true);  // Scan pendant 5 secondes
+  pBLEScan->start(5, true);  // Scan pendant 5 secondes
   pBLEScan->stop();
 
   Serial.println("--- Fin du scan BLE ---\n");

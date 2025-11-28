@@ -12,29 +12,79 @@
  *
  * */
 
+#include <Wire.h>               
+#include "HT_SSD1306Wire.h"
 #include "WiFi.h"
 #include "LoRaWan_APP.h"
 #include "secrets.h"
+#include "BLEDevice.h"
+#include <map>
 
-// /* OTAA para*/
+// OLED display
+
+static SSD1306Wire  display(0x3c, 500000, SDA_OLED, SCL_OLED, GEOMETRY_128_64, RST_OLED); // addr , freq , i2c group , resolution , rst
+int counter = 0;
+
+void writeData(int nb_wifi, int nb_ble) {
+    char str[30];
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+
+    // display.setFont(ArialMT_Plain_10);
+    // sprintf(str,"Scan n°%d", counter);
+    // display.drawString(0, 10, str);
+
+    display.setFont(ArialMT_Plain_10);
+    sprintf(str,"WiFi APs found: %d", nb_wifi);
+    display.drawString(0, 26, str);
+
+    display.setFont(ArialMT_Plain_10);
+    sprintf(str,"BLE devices found: %d", nb_ble);
+    display.drawString(0, 42, str);
+}
+
+void VextON(void)
+{
+  pinMode(Vext,OUTPUT);
+  digitalWrite(Vext, LOW);
+}
+
+void VextOFF(void) //Vext default OFF
+{
+  pinMode(Vext,OUTPUT);
+  digitalWrite(Vext, HIGH);
+}
+
+// BLE scan
+
+struct BLEInfo {
+  int count = 0;        // Nombre de paquets reçus
+  int rssiSum = 0;      // Somme des RSSI
+};
+
+std::map<String, BLEInfo> bleData;  // Stocke les infos par adresse MAC
+
+class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
+  void onResult(BLEAdvertisedDevice advertisedDevice) {
+    String mac = advertisedDevice.getAddress().toString().c_str();
+    int rssi = advertisedDevice.getRSSI();
+
+    // Mise à jour ou création d’une entrée
+    bleData[mac].count++;
+    bleData[mac].rssiSum += rssi;
+  }
+};
+
+// TTN connection
+
+/* OTAA para*/
 uint8_t devEui[8];
 uint8_t appEui[16];
 uint8_t appKey[16];
 
-// uint8_t devEui[] = { 0x70, 0xB3, 0xD5, 0x7E, 0xD0, 0x06, 0x53, 0xC8 };
-// uint8_t appEui[] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
-// uint8_t appKey[] = { 0xEF, 0x64, 0xF3, 0xFE, 0x9A, 0xA8, 0x75, 0x08, 0xB9, 0x74, 0x7C, 0x86, 0x10, 0xA9, 0xF3, 0xD6 };
-
-// /* ABP para*/
+/* ABP para*/
 uint8_t nwkSKey[16];
 uint8_t appSKey[16];
 uint32_t devAddr;
-
-// uint8_t nwkSKey[] = { 0x15, 0xb1, 0xd0, 0xef, 0xa4, 0x63, 0xdf, 0xbe, 0x3d, 0x11, 0x18, 0x1e, 0x1e, 0xc7, 0xda,0x85 };
-// uint8_t appSKey[] = { 0xd7, 0x2c, 0x78, 0x75, 0x8c, 0xdc, 0xca, 0xbf, 0x55, 0xee, 0x4a, 0x77, 0x8d, 0x16, 0xef,0x67 };
-// uint32_t devAddr =  ( uint32_t )0x007e6ae1;
-
-
 
 /*LoraWan channelsmask, default channels 0-7*/ 
 uint16_t userChannelsMask[6]={ 0x00FF,0x0000,0x0000,0x0000,0x0000,0x0000 };
@@ -46,7 +96,7 @@ LoRaMacRegion_t loraWanRegion = ACTIVE_REGION;
 DeviceClass_t  loraWanClass = CLASS_A;
 
 /*the application data transmission duty cycle.  value in [ms].*/
-uint32_t appTxDutyCycle = 30000;
+uint32_t appTxDutyCycle = 15000;
 
 /*OTAA or ABP*/
 bool overTheAirActivation = true;
@@ -81,7 +131,7 @@ uint8_t appPort = 2;
 */
 uint8_t confirmedNbTrials = 4;
 
-byte payload[2];
+byte payload[4];
 
 /* Prepares the payload of the frame */
 static void prepareTxFrame( uint8_t port )
@@ -99,11 +149,28 @@ static void prepareTxFrame( uint8_t port )
 
 //if true, next uplink will add MOTE_MAC_DEVICE_TIME_REQ 
 
+
 void setup() {
   Serial.begin(115200);
 
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();  
+  delay(100);
+
+  BLEDevice::init("");
+  BLEScan *pBLEScan = BLEDevice::getScan();
+  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+  pBLEScan->setActiveScan(true);  // meilleur scan
+  pBLEScan->setInterval(100);
+  pBLEScan->setWindow(90);
+  delay(100);
+
+  VextON();
+  delay(100);
+
+  display.init();
+  display.setFont(ArialMT_Plain_10);
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
   delay(100);
 
   memcpy(devEui, secret_devEui, 8);
@@ -133,18 +200,46 @@ void loop()
     }
     case DEVICE_STATE_JOIN:
     {
+      display.drawString(0, 10, "Joining...");
+      display.display();
+
       LoRaWAN.join();
       break;
     }
     case DEVICE_STATE_SEND:
     {
+      display.drawString(0, 26, "Scan WiFi...");
+      display.display();
+
       Serial.println("Scan WiFi...");
       int n = WiFi.scanNetworks();
-      Serial.printf("Number of WiFi network(s) found: %d", n);
+      Serial.printf("Number of WiFi AP(s) found: %d", n);
+      Serial.println();
+
+      delay(100);
+
+      display.drawString(0, 42, "Scan BLE...");
+      display.display();
+
+      BLEScan *pBLEScan = BLEDevice::getScan();
+      Serial.println("Scan BLE...");
+      bleData.clear(); 
+      pBLEScan->start(5, true);
+      pBLEScan->stop();
+
+      Serial.printf("Number of BLE device(s) found: %d", bleData.size());
       Serial.println();
 
       payload[0] = highByte(n*100);
       payload[1] = lowByte(n*100);
+      payload[2] = highByte(bleData.size()*100);
+      payload[3] = lowByte(bleData.size()*100);
+
+      delay(100);
+
+      display.clear();
+      writeData(n, bleData.size());
+      display.display();
 
       prepareTxFrame( appPort );
       LoRaWAN.send();
