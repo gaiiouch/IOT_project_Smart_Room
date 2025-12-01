@@ -96,7 +96,7 @@ LoRaMacRegion_t loraWanRegion = ACTIVE_REGION;
 DeviceClass_t  loraWanClass = CLASS_A;
 
 /*the application data transmission duty cycle.  value in [ms].*/
-uint32_t appTxDutyCycle = 15000;
+uint32_t appTxDutyCycle = 20000;
 
 /*OTAA or ABP*/
 bool overTheAirActivation = true;
@@ -160,7 +160,7 @@ void setup() {
   BLEDevice::init("");
   BLEScan *pBLEScan = BLEDevice::getScan();
   pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
-  pBLEScan->setActiveScan(true);  // meilleur scan
+  pBLEScan->setActiveScan(false);  // passive scan
   pBLEScan->setInterval(100);
   pBLEScan->setWindow(90);
   delay(100);
@@ -224,8 +224,7 @@ void loop()
       BLEScan *pBLEScan = BLEDevice::getScan();
       Serial.println("Scan BLE...");
       bleData.clear(); 
-      pBLEScan->start(5, true);
-      pBLEScan->stop();
+      pBLEScan->start(5, true); // 5 seconds scan
 
       Serial.printf("Number of BLE device(s) found: %d", bleData.size());
       Serial.println();
@@ -240,6 +239,8 @@ void loop()
       display.clear();
       writeData(n, bleData.size());
       display.display();
+
+      delay(3000);
 
       prepareTxFrame( appPort );
       LoRaWAN.send();
