@@ -7,6 +7,7 @@
 #include <BLEUtils.h>
 #include <BLEScan.h>
 #include <BLEAdvertisedDevice.h>
+#include <ArduinoBLE.h>
 
 int scanTime = 5;  //In seconds
 BLEScan *pBLEScan;
