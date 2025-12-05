@@ -5,29 +5,28 @@
 #include <WiFi.h>
 
 // OLED display
-
 static SSD1306Wire display(0x3c, 500000, SDA_OLED, SCL_OLED, GEOMETRY_128_64, RST_OLED);  // addr , freq , i2c group , resolution , rst
 
 void writeData(int nb_wifi, int nb_ble, int rssi) {
   char str[30];
   display.setTextAlignment(TEXT_ALIGN_LEFT);
-  if (rssi){
-    display.setFont(ArialMT_Plain_10);
-    sprintf(str, "Target device: -%d dBm", rssi);
-    display.drawString(0, 10, str);
-  } else {
-    display.setFont(ArialMT_Plain_10);
-    sprintf(str, "Target device not found.");
-    display.drawString(0, 10, str);
-  }
-  
   display.setFont(ArialMT_Plain_10);
   sprintf(str, "WiFi APs found: %d", nb_wifi);
-  display.drawString(0, 26, str);
+  display.drawString(0, 10, str);
 
   display.setFont(ArialMT_Plain_10);
   sprintf(str, "BLE devices found: %d", nb_ble);
-  display.drawString(0, 42, str);
+  display.drawString(0, 26, str);
+
+  if (rssi != 150) {
+    display.setFont(ArialMT_Plain_10);
+    sprintf(str, "Target device: -%d dBm", rssi);
+    display.drawString(0, 42, str);
+  } else {
+    display.setFont(ArialMT_Plain_10);
+    sprintf(str, "Target device not found.");
+    display.drawString(0, 42, str);
+  }
 }
 
 void VextON(void) {
@@ -88,22 +87,20 @@ static void prepareTxFrame(uint8_t port) {
   memcpy(appData, payload, appDataSize);
 }
 
-//BLE
-const char* TARGET_UUID = "7A0247E7-8E88-409B-A959-AB5092DDB03E";  // UUID à détecter
-
-#define MAX_DEVICES 150   // limite raisonnable pour éviter de saturer la RAM
+// BLE
+#define MAX_DEVICES 150
 
 String devices[MAX_DEVICES];
 int deviceCount = 0;
 
 bool addUniqueDevice(const String& addr) {
-  // Vérifie si l'adresse est déjà enregistrée
+  // Checks if MAC address is already registred
   for (int i = 0; i < deviceCount; i++) {
     if (devices[i] == addr) {
-      return false;  // déjà présent
+      return false;  // already registred
     }
   }
-  // Ajoute si il reste de la place
+  // Add device to list
   if (deviceCount < MAX_DEVICES) {
     devices[deviceCount++] = addr;
     return true;
@@ -114,25 +111,10 @@ bool addUniqueDevice(const String& addr) {
 
 void setup() {
   Serial.begin(115200);
+  Serial.println();
+  Serial.println();
 
-  //WiFi
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
-  delay(100);
-
-  //BLE
-  while (!Serial)
-    ;
-
-  Serial.println("Initialisation BLE…");
-
-  if (!BLE.begin()) {
-    Serial.println("Erreur : impossible de démarrer le BLE !");
-    while (1)
-      ;
-  }
-
-  //display
+  // display
   VextON();
   delay(100);
 
@@ -141,7 +123,25 @@ void setup() {
   display.setTextAlignment(TEXT_ALIGN_LEFT);
   delay(100);
 
-  //LoraWan
+  // WiFi
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+  delay(100);
+
+  // BLE
+  while (!Serial)
+    ;
+
+  Serial.println("BLE initialisation…");
+  Serial.println("BLE started.");
+
+  if (!BLE.begin()) {
+    Serial.println("Error when starting BLE.");
+    while (1)
+      ;
+  }
+
+  // LoraWan
   memcpy(devEui, secret_devEui, 8);
   memcpy(appEui, secret_appEui, 16);
   memcpy(appKey, secret_appKey, 16);
@@ -151,7 +151,100 @@ void setup() {
   memcpy(&devAddr, &secret_devAddr, 4);
 
   Mcu.begin(HELTEC_BOARD, SLOW_CLK_TPYE);
+
+  display.drawString(0, 10, "Setup done.");
+  display.display();
+
+  // WiFi
+  display.drawString(0, 26, "Scan WiFi...");
+  display.display();
+
+  Serial.println("Scan WiFi...");
+  int n = WiFi.scanNetworks();
+  for (int i = 0; i < n; ++i) {
+    Serial.printf("Detected AP | SSID: %s | RSSI: %d dBm | MAC: %s",
+                  WiFi.SSID(i).c_str(),
+                  WiFi.RSSI(i),
+                  WiFi.BSSIDstr(i).c_str());
+    Serial.println();
+  }
+  Serial.printf("Number of WiFi AP(s) found: %d", n);
+  Serial.println();
+  Serial.println();
+
+  delay(100);
+
+  //BLE for all devices
+  display.drawString(0, 42, "Scan BLE...");
+  display.display();
+
+  for (int i = 0; i < MAX_DEVICES; i++) {
+    devices[i] = "";
+  }
+  deviceCount = 0;
+
+  BLE.scan();
+
+  unsigned long start1 = millis();
+  while (millis() - start1 < 5000) {
+    BLEDevice peripheral = BLE.available();
+    if (peripheral) {
+      String mac = peripheral.address();
+      addUniqueDevice(mac);
+      Serial.printf("Detected device | Name: %s | RSSI: %d dBm | MAC address: ", 
+                    peripheral.deviceName(), 
+                    peripheral.rssi());
+      Serial.println(peripheral.address());
+    }
+  }
+
+  BLE.stopScan();
+
+  Serial.printf("Number of BLE device(s) found during 5 seconds scan: %d", deviceCount);
+  Serial.println();
+  Serial.println();
+
+
+  // BLE for one specific device
+  int target_rssi = -150;
+  unsigned long start2 = millis();
+  BLE.scanForName("ESP32-Mister-T");
+  while (millis() - start2 < 1000) {
+    BLEDevice peripheral = BLE.available();
+    if (peripheral) {
+      Serial.printf("Target device detected | Name: %s | RSSI: %d dBm | MAC address: ", 
+                    peripheral.deviceName(), 
+                    peripheral.rssi());
+      Serial.println(peripheral.address());
+      target_rssi = peripheral.rssi();
+    }
+  }
+
+  BLE.stopScan();
+
+  Serial.println();
+  Serial.println();
+
+
+  // data to send to TTN
+  payload[0] = highByte(n * 100);
+  payload[1] = lowByte(n * 100);
+  payload[2] = highByte(deviceCount * 100);
+  payload[3] = lowByte(deviceCount * 100);
+  payload[4] = highByte(abs(target_rssi) * 100);
+  payload[5] = lowByte(abs(target_rssi) * 100);
+
+  delay(100);
+
+  // display measurements results
+  display.clear();
+  writeData(n, deviceCount, abs(target_rssi));
+  display.display();
+
+  delay(3000);
+  display.clear();
 }
+
 
 void loop() {
 
@@ -176,81 +269,8 @@ void loop() {
       }
     case DEVICE_STATE_SEND:
       {
-        display.drawString(0, 26, "Scan WiFi...");
+        display.drawString(0, 26, "Sending...");
         display.display();
-
-        //WiFi
-        Serial.println("Scan WiFi...");
-        int n = WiFi.scanNetworks();
-        Serial.printf("Number of WiFi AP(s) found: %d", n);
-        Serial.println();
-
-        delay(100);
-
-        //BLE for all devices
-        display.drawString(0, 42, "Scan BLE...");
-        display.display();
-
-        Serial.println("BLE démarré. Début du scan…");
-
-        //int count = 0;
-        for (int i=0; i < MAX_DEVICES; i++){
-          devices[i] = "";
-        }
-        deviceCount = 0;
-
-        BLE.scan();  // true = scan continu
-
-        unsigned long start1 = millis();
-        while (millis() - start1 < 5000) {
-          BLEDevice peripheral = BLE.available();
-          if (peripheral) {
-            String mac = peripheral.address();
-            addUniqueDevice(mac);
-            //count++;
-            Serial.print("Appareil détecté: ");
-            Serial.println(peripheral.rssi());
-            Serial.println(peripheral.address());
-            Serial.println(peripheral.deviceName());
-          }
-        }          
-
-        BLE.stopScan();
-
-        Serial.printf("Number of BLE device(s) found during 5 seconds scan: %d", deviceCount);
-        Serial.println();
-
-        //BLE for one specific device
-        int target_rssi = 0;
-        unsigned long start2 = millis();
-        BLE.scanForName("ESP32-AG");
-        while (millis() - start2 < 5000) {
-          BLEDevice peripheral = BLE.available();
-          if (peripheral) {
-            Serial.print("Appareil cible détecté: ");
-            Serial.println(peripheral.rssi());
-            target_rssi = peripheral.rssi();
-          }
-        }
-
-        BLE.stopScan();
-        
-        payload[0] = highByte(n * 100);
-        payload[1] = lowByte(n * 100);
-        payload[2] = highByte(deviceCount * 100);
-        payload[3] = lowByte(deviceCount * 100);
-        payload[4] = highByte(abs(target_rssi) * 100);
-        payload[5] = lowByte(abs(target_rssi) * 100);
-
-        delay(100);
-
-        display.clear();
-        writeData(n, deviceCount, abs(target_rssi));
-        display.display();
-
-        delay(3000);
-
-
 
         prepareTxFrame(appPort);
         LoRaWAN.send();
