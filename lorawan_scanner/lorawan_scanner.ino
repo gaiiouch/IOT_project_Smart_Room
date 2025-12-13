@@ -7,7 +7,7 @@
 // OLED display
 static SSD1306Wire display(0x3c, 500000, SDA_OLED, SCL_OLED, GEOMETRY_128_64, RST_OLED);  // addr , freq , i2c group , resolution , rst
 
-void writeData(int nb_wifi, int nb_ble, int rssi) {
+void writeData(int nb_wifi, int nb_ble, int rssi, int crowd) {
   char str[30];
   display.setTextAlignment(TEXT_ALIGN_LEFT);
   display.setFont(ArialMT_Plain_10);
@@ -27,6 +27,16 @@ void writeData(int nb_wifi, int nb_ble, int rssi) {
     sprintf(str, "Target device not found.");
     display.drawString(0, 42, str);
   }
+  display.display();
+  delay(3000);
+  display.clear();
+
+  display.setFont(ArialMT_Plain_10);
+  sprintf(str, "Crowd level measured: %d", crowd);
+  display.drawString(0, 26, str);
+  display.display();
+  delay(3000);
+  display.clear();
 }
 
 void VextON(void) {
@@ -79,7 +89,7 @@ uint8_t appPort = 2;
 
 uint8_t confirmedNbTrials = 4;
 
-byte payload[6];
+byte payload[8];
 
 /* Prepares the payload of the frame */
 static void prepareTxFrame(uint8_t port) {
@@ -92,6 +102,7 @@ static void prepareTxFrame(uint8_t port) {
 
 String devices[MAX_DEVICES];
 int deviceCount = 0;
+int crowdLevel = 0;
 
 bool addUniqueDevice(const String& addr) {
   // Checks if MAC address is already registred
@@ -188,7 +199,7 @@ void setup() {
   unsigned long start1 = millis();
   while (millis() - start1 < 5000) {
     BLEDevice peripheral = BLE.available();
-    if (peripheral) {
+    if (peripheral && peripheral.rssi() > -85) {
       String mac = peripheral.address();
       addUniqueDevice(mac);
       Serial.printf("Detected device | Name: %s | RSSI: %d dBm | MAC address: ", 
@@ -201,6 +212,16 @@ void setup() {
   BLE.stopScan();
 
   Serial.printf("Number of BLE device(s) found during 5 seconds scan: %d", deviceCount);
+  Serial.println();
+  
+  if (deviceCount >= 35){
+    crowdLevel = 2;
+  } else if (deviceCount >= 25){
+    crowdLevel = 1;
+  } else {
+    crowdLevel = 0;
+  }
+  Serial.printf("Crowd level measured according to number of BLE devices: %d", crowdLevel);
   Serial.println();
   Serial.println();
 
@@ -233,16 +254,14 @@ void setup() {
   payload[3] = lowByte(deviceCount * 100);
   payload[4] = highByte(abs(target_rssi) * 100);
   payload[5] = lowByte(abs(target_rssi) * 100);
+  payload[6] = highByte(crowdLevel * 100);
+  payload[7] = lowByte(crowdLevel * 100);
 
   delay(100);
 
   // display measurements results
   display.clear();
-  writeData(n, deviceCount, abs(target_rssi));
-  display.display();
-
-  delay(3000);
-  display.clear();
+  writeData(n, deviceCount, abs(target_rssi), crowdLevel);
 }
 
 
