@@ -15,9 +15,9 @@ Then, the part beacon_advertiser allows an esp32 board to emit regularly a BLE b
 
 ### Arduino
 
-ArduinoBLE
-Adafruit SSD1306 and associated libraries
-Heltec EPS32 Dev-Boards
+- ArduinoBLE
+- Adafruit SSD1306 and associated libraries
+- Heltec EPS32 Dev-Boards
 
 ### Python 
 
